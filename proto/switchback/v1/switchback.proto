@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package switchback.v1;
+option go_package = "github.com/bbengfort/switchback/pkg/api/v1;api";
+
+
+service Switchback {
+    rpc Publish(stream Event) returns (ClosePublish) {}
+    rpc Subscribe(Subscription) returns (stream Event) {}
+    rpc Status(HealthCheck) returns (ServiceState) {}
+}
+
+message Event {
+    string topic = 1;
+    bytes data = 2;
+
+    // Should not be set by publisher and only read by consumers.
+    Metadata meta = 16;
+}
+
+message Metadata {
+    uint64 offset = 1;
+    uint64 epoch = 2;
+    string source = 3;
+}
+
+message Subscription {
+    string topic = 1;
+    string group = 2;
+}
+
+message ClosePublish {
+    uint64 events = 1;
+    uint64 topic_offset = 2;
+    uint64 consumers = 3;
+}
+
+message HealthCheck {}
+
+message ServiceState {
+    string status = 1;
+    string uptime = 2;
+    string version = 3;
+}
