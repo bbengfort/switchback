@@ -25,8 +25,9 @@ func init() {
 
 type Server struct {
 	api.UnimplementedSwitchbackServer
-	srv     *grpc.Server
 	conf    config.Config
+	srv     *grpc.Server
+	pubsub  *PubSub
 	echan   chan error
 	started time.Time
 }
@@ -48,6 +49,9 @@ func New(conf config.Config) (s *Server, err error) {
 
 	// Create the server and prepare to serve
 	s = &Server{conf: conf, echan: make(chan error, 1)}
+	s.pubsub = &PubSub{
+		topics: make(map[string]*Group),
+	}
 
 	s.srv = grpc.NewServer(s.StreamInterceptors(), s.UnaryInterceptors())
 	api.RegisterSwitchbackServer(s.srv, s)

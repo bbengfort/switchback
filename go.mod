@@ -3,6 +3,7 @@ module github.com/bbengfort/switchback
 go 1.17
 
 require (
+	github.com/google/uuid v1.1.2
 	github.com/joho/godotenv v1.4.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/rs/zerolog v1.26.1
