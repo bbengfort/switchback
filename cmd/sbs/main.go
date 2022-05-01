@@ -40,7 +40,7 @@ func main() {
 			{
 				Name:     "status",
 				Usage:    "get the status of a running switchback server",
-				Category: "server",
+				Category: "client",
 				Action:   status,
 				Flags: []cli.Flag{
 					&cli.StringFlag{
@@ -48,6 +48,51 @@ func main() {
 						Aliases: []string{"e"},
 						Usage:   "the endpoint to connect to the switchback server on",
 						Value:   "localhost:7773",
+					},
+				},
+			},
+			{
+				Name:     "sub",
+				Usage:    "print events from the stream as they come in",
+				Category: "client",
+				Action:   subscribe,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "endpoint",
+						Aliases: []string{"e"},
+						Usage:   "the endpoint to connect to the switchback server on",
+						Value:   "localhost:7773",
+					},
+					&cli.StringFlag{
+						Name:    "topic",
+						Aliases: []string{"t"},
+						Usage:   "the topic to subscribe to events for",
+						Value:   "default",
+					},
+					&cli.StringFlag{
+						Name:    "group",
+						Aliases: []string{"g"},
+						Usage:   "the group the client is a part of",
+					},
+				},
+			},
+			{
+				Name:     "random",
+				Usage:    "randomly generate events in the specified topic and publish them",
+				Category: "simulator",
+				Action:   simulator,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "endpoint",
+						Aliases: []string{"e"},
+						Usage:   "the endpoint to connect to the switchback server on",
+						Value:   "localhost:7773",
+					},
+					&cli.StringFlag{
+						Name:    "topic",
+						Aliases: []string{"t"},
+						Usage:   "the topic to generate events on",
+						Value:   "default",
 					},
 				},
 			},
@@ -93,6 +138,64 @@ func status(c *cli.Context) (err error) {
 		return cli.Exit(err, 1)
 	}
 	return printJSON(rep)
+}
+
+func subscribe(c *cli.Context) (err error) {
+	var cc *grpc.ClientConn
+	if cc, err = grpc.Dial(c.String("endpoint"), grpc.WithTransportCredentials(insecure.NewCredentials())); err != nil {
+		return cli.Exit(err, 1)
+	}
+
+	defer cc.Close()
+	client := api.NewSwitchbackClient(cc)
+
+	req := &api.Subscription{
+		Topic: c.String("topic"),
+		Group: c.String("group"),
+	}
+
+	var stream api.Switchback_SubscribeClient
+	if stream, err = client.Subscribe(context.Background(), req); err != nil {
+		return cli.Exit(err, 1)
+	}
+
+	for {
+		var event *api.Event
+		if event, err = stream.Recv(); err != nil {
+			return cli.Exit(err, 1)
+		}
+
+		if err = printJSON(event); err != nil {
+			return cli.Exit(err, 1)
+		}
+	}
+}
+
+func simulator(c *cli.Context) (err error) {
+	var cc *grpc.ClientConn
+	if cc, err = grpc.Dial(c.String("endpoint"), grpc.WithTransportCredentials(insecure.NewCredentials())); err != nil {
+		return cli.Exit(err, 1)
+	}
+
+	defer cc.Close()
+	client := api.NewSwitchbackClient(cc)
+
+	var stream api.Switchback_PublishClient
+	if stream, err = client.Publish(context.Background()); err != nil {
+		return cli.Exit(err, 1)
+	}
+
+	topic := c.String("topic")
+	ticker := time.NewTicker(2500 * time.Millisecond)
+
+	for {
+		ts := <-ticker.C
+		event := &api.Event{Topic: topic, Data: []byte(ts.Format(time.RFC1123Z))}
+		if err = stream.Send(event); err != nil {
+			return cli.Exit(err, 1)
+		}
+	}
+	return nil
 }
 
 func printJSON(msg interface{}) (err error) {

@@ -3,6 +3,7 @@ package switchback
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -10,9 +11,12 @@ import (
 
 	"github.com/bbengfort/switchback/pkg/api/v1"
 	"github.com/bbengfort/switchback/pkg/config"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func init() {
@@ -50,7 +54,7 @@ func New(conf config.Config) (s *Server, err error) {
 	// Create the server and prepare to serve
 	s = &Server{conf: conf, echan: make(chan error, 1)}
 	s.pubsub = &PubSub{
-		topics: make(map[string]*Group),
+		topics: make(map[string]map[string]*Group),
 	}
 
 	s.srv = grpc.NewServer(s.StreamInterceptors(), s.UnaryInterceptors())
@@ -100,6 +104,43 @@ func (s *Server) Run(sock net.Listener) {
 func (s *Server) Shutdown() (err error) {
 	log.Info().Msg("gracefully shutting down")
 	s.srv.GracefulStop()
+	return nil
+}
+
+func (s *Server) Publish(stream api.Switchback_PublishServer) (err error) {
+	log.Info().Str("id", uuid.New().String()).Msg("publisher connected")
+	for {
+		var event *api.Event
+		if event, err = stream.Recv(); err != nil {
+			if err != io.EOF {
+				log.Error().Err(err).Msg("could not recv event from stream")
+				return err
+			}
+			return nil
+		}
+
+		if err = s.pubsub.Publish(event); err != nil {
+			log.Error().Err(err).Msg("could not publish event")
+		}
+	}
+}
+
+func (s *Server) Subscribe(in *api.Subscription, stream api.Switchback_SubscribeServer) (err error) {
+	var events <-chan *api.Event
+	if events, err = s.pubsub.Connect(in); err != nil {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+
+	for event := range events {
+		if err = stream.Send(event); err != nil {
+			// TODO: close the stream on error
+			if err != io.EOF {
+				log.Error().Err(err).Msg("could not send event to stream")
+				return err
+			}
+			return nil
+		}
+	}
 	return nil
 }
 
